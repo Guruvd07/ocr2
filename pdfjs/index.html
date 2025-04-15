@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF.js Text Extraction with Reporting</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.11.338/pdf.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f7fa;
+            color: #333;
+        }
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.1);
+        }
+        h1 {
+            color: #2c3e50;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .upload-section {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border: 2px dashed #dee2e6;
+            text-align: center;
+        }
+        #pdfFile {
+            display: none;
+        }
+        .file-upload-label {
+            display: block;
+            padding: 15px;
+            background: #3498db;
+            color: white;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background 0.3s;
+            margin-bottom: 10px;
+        }
+        .file-upload-label:hover {
+            background: #2980b9;
+        }
+        .file-name {
+            margin-top: 10px;
+            font-size: 14px;
+            color: #7f8c8d;
+        }
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin: 20px 0;
+            flex-wrap: wrap;
+        }
+        button {
+            padding: 12px 20px;
+            background: #3498db;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: all 0.3s;
+            flex: 1;
+            min-width: 200px;
+        }
+        button:hover {
+            background: #2980b9;
+            transform: translateY(-2px);
+        }
+        button:disabled {
+            background: #95a5a6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .metrics {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin: 25px 0;
+        }
+        .metric-card {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.05);
+            border-left: 4px solid #3498db;
+        }
+        .metric-title {
+            font-size: 14px;
+            color: #7f8c8d;
+            margin-bottom: 5px;
+        }
+        .metric-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+        .status-success {
+            color: #27ae60;
+        }
+        .status-error {
+            color: #e74c3c;
+        }
+        #extractedText {
+            width: 100%;
+            height: 400px;
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            white-space: pre-wrap;
+            background: #f8f9fa;
+            resize: vertical;
+        }
+        .performance-section {
+            margin-top: 30px;
+        }
+        .performance-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        #performanceLog {
+            background: #2c3e50;
+            color: #ecf0f1;
+            padding: 15px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            white-space: pre-wrap;
+            max-height: 200px;
+            overflow-y: auto;
+            font-size: 13px;
+        }
+        .log-entry {
+            margin-bottom: 5px;
+        }
+        .timestamp {
+            color: #3498db;
+        }
+        .progress-bar {
+            height: 5px;
+            background: #ecf0f1;
+            border-radius: 5px;
+            margin-top: 10px;
+            overflow: hidden;
+        }
+        .progress {
+            height: 100%;
+            background: #3498db;
+            width: 0%;
+            transition: width 0.3s;
+        }
+        @media (max-width: 768px) {
+            .container {
+                padding: 15px;
+            }
+            .metrics {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>PDF Text Extraction with PDF.js</h1>
+        
+        <div class="upload-section">
+            <label for="pdfFile" class="file-upload-label">
+                Choose PDF File
+                <input type="file" id="pdfFile" accept=".pdf">
+            </label>
+            <div id="fileName" class="file-name">No file selected</div>
+            
+            <div class="button-group">
+                <button id="extractBtn" disabled>Extract Text</button>
+                <button id="downloadReport" disabled>Download Report</button>
+            </div>
+            
+            <div class="progress-bar">
+                <div id="extractProgress" class="progress"></div>
+            </div>
+        </div>
+        
+        <div class="metrics">
+            <div class="metric-card">
+                <div class="metric-title">Execution Time</div>
+                <div id="execTime" class="metric-value">-</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-title">Memory Used</div>
+                <div id="memoryUsed" class="metric-value">-</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-title">Status</div>
+                <div id="status">-</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-title">Text Length</div>
+                <div id="textLength" class="metric-value">-</div>
+            </div>
+        </div>
+        
+        <h3>Extracted Text</h3>
+        <textarea id="extractedText" readonly placeholder="Extracted text will appear here..."></textarea>
+        
+        <div class="performance-section">
+            <div class="performance-header">
+                <h3>Performance Log</h3>
+                <button id="clearLog">Clear Log</button>
+            </div>
+            <div id="performanceLog"></div>
+        </div>
+    </div>
+
+    <script>
+        // Set PDF.js worker path
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.11.338/pdf.worker.min.js';
+        
+        // DOM elements
+        const pdfFileInput = document.getElementById('pdfFile');
+        const fileUploadLabel = document.querySelector('.file-upload-label');
+        const fileNameDisplay = document.getElementById('fileName');
+        const extractBtn = document.getElementById('extractBtn');
+        const downloadBtn = document.getElementById('downloadReport');
+        const execTimeEl = document.getElementById('execTime');
+        const memoryUsedEl = document.getElementById('memoryUsed');
+        const statusEl = document.getElementById('status');
+        const textLengthEl = document.getElementById('textLength');
+        const extractedTextEl = document.getElementById('extractedText');
+        const performanceLogEl = document.getElementById('performanceLog');
+        const clearLogBtn = document.getElementById('clearLog');
+        const progressBar = document.getElementById('extractProgress');
+        
+        // Extraction data
+        let extractionData = {
+            text: '',
+            time: 0,
+            memory: 'N/A',
+            filename: '',
+            success: false,
+            pages: 0,
+            startTime: 0
+        };
+        
+        // File input change handler
+        pdfFileInput.addEventListener('change', function() {
+            if (this.files.length > 0) {
+                const file = this.files[0];
+                fileNameDisplay.textContent = file.name;
+                extractBtn.disabled = false;
+                
+                // Reset previous data
+                extractionData = {
+                    text: '',
+                    time: 0,
+                    memory: 'N/A',
+                    filename: file.name,
+                    success: false,
+                    pages: 0
+                };
+                
+                execTimeEl.textContent = '-';
+                memoryUsedEl.textContent = '-';
+                statusEl.textContent = '-';
+                statusEl.className = '';
+                textLengthEl.textContent = '-';
+                extractedTextEl.value = '';
+                downloadBtn.disabled = true;
+                progressBar.style.width = '0%';
+                
+                logPerformance(`File selected: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`);
+            } else {
+                fileNameDisplay.textContent = 'No file selected';
+                extractBtn.disabled = true;
+            }
+        });
+        
+        // Log performance messages
+        function logPerformance(message) {
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = document.createElement('div');
+            logEntry.className = 'log-entry';
+            logEntry.innerHTML = `<span class="timestamp">[${timestamp}]</span> ${message}`;
+            performanceLogEl.appendChild(logEntry);
+            performanceLogEl.scrollTop = performanceLogEl.scrollHeight;
+        }
+        
+        // Clear log
+        clearLogBtn.addEventListener('click', function() {
+            performanceLogEl.innerHTML = '';
+        });
+        
+        // Get memory usage (approximate)
+        function getMemoryUsage() {
+            try {
+                if (window.performance && window.performance.memory) {
+                    return (window.performance.memory.usedJSHeapSize / (1024 * 1024)).toFixed(2) + ' MB';
+                }
+                return 'N/A';
+            } catch (e) {
+                return 'N/A';
+            }
+        }
+        
+        // Extract text from PDF
+        extractBtn.addEventListener('click', async function() {
+            if (!pdfFileInput.files.length) {
+                alert('Please select a PDF file first');
+                return;
+            }
+            
+            const file = pdfFileInput.files[0];
+            
+            // Reset UI
+            extractBtn.disabled = true;
+            downloadBtn.disabled = true;
+            execTimeEl.textContent = '...';
+            memoryUsedEl.textContent = '...';
+            statusEl.textContent = 'Processing';
+            statusEl.className = 'status-processing';
+            textLengthEl.textContent = '...';
+            extractedTextEl.value = '';
+            progressBar.style.width = '0%';
+            
+            // Record start time
+            extractionData.startTime = performance.now();
+            extractionData.memoryBefore = getMemoryUsage();
+            extractionData.success = false;
+            
+            logPerformance('Starting PDF processing...');
+            logPerformance(`Initial memory: ${extractionData.memoryBefore}`);
+            
+            const fileReader = new FileReader();
+            
+            fileReader.onload = async function() {
+                try {
+                    const typedArray = new Uint8Array(this.result);
+                    
+                    // Load the PDF document
+                    logPerformance('Loading PDF document...');
+                    const loadingTask = pdfjsLib.getDocument(typedArray);
+                    const pdf = await loadingTask.promise;
+                    
+                    extractionData.pages = pdf.numPages;
+                    logPerformance(`Document loaded with ${pdf.numPages} pages`);
+                    
+                    let fullText = '';
+                    
+                    // Process each page
+                    for (let i = 1; i <= pdf.numPages; i++) {
+                        try {
+                            logPerformance(`Processing page ${i}/${pdf.numPages}`);
+                            const page = await pdf.getPage(i);
+                            const textContent = await page.getTextContent();
+                            
+                            // Combine text items while preserving layout
+                            let lastY, text = '';
+                            const items = textContent.items;
+                            
+                            for (let j = 0; j < items.length; j++) {
+                                const item = items[j];
+                                if (lastY !== item.transform[5]) {
+                                    text += '\n';
+                                    lastY = item.transform[5];
+                                }
+                                text += item.str + ' ';
+                            }
+                            
+                            fullText += text + '\n\n';
+                            
+                            // Update progress
+                            const progress = (i / pdf.numPages) * 100;
+                            progressBar.style.width = `${progress}%`;
+                            
+                        } catch (pageError) {
+                            logPerformance(`Error processing page ${i}: ${pageError.message}`);
+                        }
+                    }
+                    
+                    // Calculate metrics
+                    const endTime = performance.now();
+                    extractionData.time = ((endTime - extractionData.startTime) / 1000).toFixed(4);
+                    extractionData.memory = getMemoryUsage();
+                    extractionData.text = fullText;
+                    extractionData.success = true;
+                    
+                    // Update UI
+                    execTimeEl.textContent = `${extractionData.time} s`;
+                    memoryUsedEl.textContent = extractionData.memory;
+                    statusEl.textContent = 'Success';
+                    statusEl.className = 'status-success';
+                    textLengthEl.textContent = `${fullText.length} chars`;
+                    extractedTextEl.value = fullText;
+                    progressBar.style.width = '100%';
+                    downloadBtn.disabled = false;
+                    
+                    logPerformance(`Processing completed in ${extractionData.time} seconds`);
+                    logPerformance(`Final memory: ${extractionData.memory}`);
+                    logPerformance(`Extracted ${fullText.length} characters`);
+                    
+                } catch (error) {
+                    console.error('Error:', error);
+                    statusEl.textContent = 'Failed';
+                    statusEl.className = 'status-error';
+                    logPerformance(`Error: ${error.message}`);
+                    
+                    extractionData.success = false;
+                    extractionData.error = error.message;
+                } finally {
+                    extractBtn.disabled = false;
+                }
+            };
+            
+            fileReader.onerror = function() {
+                logPerformance('Error reading file');
+                statusEl.textContent = 'File read error';
+                statusEl.className = 'status-error';
+                extractBtn.disabled = false;
+            };
+            
+            fileReader.readAsArrayBuffer(file);
+        });
+        
+        // Generate and download PDF report
+        downloadBtn.addEventListener('click', async function() {
+            if (!extractionData.success) {
+                alert('Please successfully extract text first');
+                return;
+            }
+            
+            downloadBtn.disabled = true;
+            logPerformance('Generating PDF report...');
+            
+            try {
+                const { PDFDocument, rgb, StandardFonts } = PDFLib;
+                const pdfDoc = await PDFDocument.create();
+                
+                // Add a new page
+                const page = pdfDoc.addPage([600, 800]);
+                const { width, height } = page.getSize();
+                const margin = 50;
+                
+                // Set font
+                const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+                const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+                
+                // Current y position (starts from top)
+                let y = height - margin - 30;
+                
+                // Add title
+                page.drawText('PDF.js Text Extraction Report', {
+                    x: margin,
+                    y: y,
+                    size: 20,
+                    font: fontBold,
+                    color: rgb(0, 0, 0)
+                });
+                y -= 30;
+                
+                // Add file info
+                page.drawText(`File: ${extractionData.filename}`, {
+                    x: margin,
+                    y: y,
+                    size: 12,
+                    font: font,
+                    color: rgb(0, 0, 0)
+                });
+                y -= 20;
+                
+                page.drawText(`Processed on: ${new Date().toLocaleString()}`, {
+                    x: margin,
+                    y: y,
+                    size: 10,
+                    font: font,
+                    color: rgb(0.5, 0.5, 0.5)
+                });
+                y -= 30;
+                
+                // Add performance metrics section
+                page.drawText('Performance Metrics:', {
+                    x: margin,
+                    y: y,
+                    size: 14,
+                    font: fontBold,
+                    color: rgb(0, 0, 0)
+                });
+                y -= 20;
+                
+                const metrics = [
+                    `Execution Time: ${extractionData.time} seconds`,
+                    `Memory Used: ${extractionData.memory}`,
+                    `Pages Processed: ${extractionData.pages}`,
+                    `Text Length: ${extractionData.text.length} characters`
+                ];
+                
+                for (const metric of metrics) {
+                    page.drawText(metric, {
+                        x: margin,
+                        y: y,
+                        size: 12,
+                        font: font,
+                        color: rgb(0, 0, 0)
+                    });
+                    y -= 20;
+                }
+                
+                y -= 20;
+                
+                // Add extracted text section
+                page.drawText('Extracted Text Sample:', {
+                    x: margin,
+                    y: y,
+                    size: 14,
+                    font: fontBold,
+                    color: rgb(0, 0, 0)
+                });
+                y -= 20;
+                
+                // Add text content (limited to fit on page)
+                const sampleText = extractionData.text.substring(0, 2000);
+                const textLines = sampleText.split('\n');
+                const lineHeight = 12;
+                const fontSize = 8;
+                
+                for (let i = 0; i < textLines.length && y > margin + lineHeight; i++) {
+                    if (textLines[i].trim() === '') continue;
+                    
+                    page.drawText(textLines[i], {
+                        x: margin,
+                        y: y,
+                        size: fontSize,
+                        font: font,
+                        color: rgb(0, 0, 0),
+                        maxWidth: width - 2 * margin
+                    });
+                    y -= lineHeight;
+                }
+                
+                // Add page footer
+                page.drawText('Generated by PDF.js Text Extractor', {
+                    x: margin,
+                    y: margin - 10,
+                    size: 10,
+                    font: font,
+                    color: rgb(0.5, 0.5, 0.5)
+                });
+                
+                // Save PDF
+                const pdfBytes = await pdfDoc.save();
+                const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+                
+                // Generate filename
+                const reportFilename = `pdfjs_report_${extractionData.filename.replace('.pdf', '')}_${new Date().getTime()}.pdf`;
+                
+                // Download the file
+                saveAs(blob, reportFilename);
+                
+                logPerformance(`PDF report generated: ${reportFilename}`);
+                
+            } catch (error) {
+                console.error('Error generating PDF:', error);
+                logPerformance(`Error generating PDF: ${error.message}`);
+                alert('Failed to generate PDF report');
+            } finally {
+                downloadBtn.disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>
