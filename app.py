@@ -9,41 +9,57 @@ import tracemalloc
 import requests
 import tempfile
 import shutil
+import zipfile
 
 # Initialize memory tracking
 tracemalloc.start()
 
-# Download and setup Unicode font
 def setup_unicode_font():
+    """Download and setup DejaVu Sans font with all variants (regular, bold, italic, bold-italic)"""
     font_url = "https://github.com/dejavu-fonts/dejavu-fonts/releases/download/version_2_37/dejavu-sans-ttf-2.37.zip"
     font_dir = os.path.join(tempfile.gettempdir(), "dejavu_fonts")
-    font_path = os.path.join(font_dir, "DejaVuSans.ttf")
     
-    if not os.path.exists(font_path):
-        try:
-            os.makedirs(font_dir, exist_ok=True)
-            # Download and extract font
-            import zipfile
-            response = requests.get(font_url, stream=True)
-            zip_path = os.path.join(font_dir, "dejavu.zip")
-            with open(zip_path, 'wb') as f:
-                shutil.copyfileobj(response.raw, f)
-            
-            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                for file in zip_ref.namelist():
-                    if file.endswith('.ttf'):
-                        zip_ref.extract(file, font_dir)
-                        if "DejaVuSans.ttf" in file:
-                            os.rename(os.path.join(font_dir, file), font_path)
-            
-            os.remove(zip_path)
-        except Exception as e:
-            st.warning(f"Could not download Unicode font: {e}")
-            return None
+    try:
+        os.makedirs(font_dir, exist_ok=True)
+        
+        # Download the font package
+        zip_path = os.path.join(font_dir, "dejavu.zip")
+        response = requests.get(font_url, stream=True)
+        with open(zip_path, 'wb') as f:
+            shutil.copyfileobj(response.raw, f)
+        
+        # Extract all font variants
+        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            zip_ref.extractall(font_dir)
+        
+        # Find all font files
+        font_files = {
+            'regular': None,
+            'bold': None,
+            'italic': None,
+            'bold_italic': None
+        }
+        
+        for file in os.listdir(font_dir):
+            if file.endswith('.ttf'):
+                if 'DejaVuSans.ttf' in file:
+                    font_files['regular'] = os.path.join(font_dir, file)
+                elif 'DejaVuSans-Bold.ttf' in file:
+                    font_files['bold'] = os.path.join(font_dir, file)
+                elif 'DejaVuSans-Oblique.ttf' in file:
+                    font_files['italic'] = os.path.join(font_dir, file)
+                elif 'DejaVuSans-BoldOblique.ttf' in file:
+                    font_files['bold_italic'] = os.path.join(font_dir, file)
+        
+        os.remove(zip_path)
+        return font_files
     
-    return font_path if os.path.exists(font_path) else None
+    except Exception as e:
+        st.warning(f"Could not setup Unicode fonts: {e}")
+        return None
 
-UNICODE_FONT_PATH = setup_unicode_font()
+# Get all font variants
+FONT_VARIANTS = setup_unicode_font()
 
 def get_memory_usage():
     process = psutil.Process(os.getpid())
@@ -84,16 +100,23 @@ def generate_pypdf2_report(extraction_data, filename):
     pdf = FPDF()
     pdf.add_page()
     
-    # Add Unicode font if available
-    if UNICODE_FONT_PATH:
-        pdf.add_font('DejaVu', '', UNICODE_FONT_PATH, uni=True)
-        default_font = 'DejaVu'
+    # Add Unicode fonts if available
+    if FONT_VARIANTS and all(FONT_VARIANTS.values()):
+        try:
+            pdf.add_font('DejaVu', '', FONT_VARIANTS['regular'], uni=True)
+            pdf.add_font('DejaVu', 'B', FONT_VARIANTS['bold'], uni=True)
+            pdf.add_font('DejaVu', 'I', FONT_VARIANTS['italic'], uni=True)
+            pdf.add_font('DejaVu', 'BI', FONT_VARIANTS['bold_italic'], uni=True)
+            default_font = 'DejaVu'
+        except:
+            st.warning("Failed to load some font variants, using Arial")
+            default_font = 'Arial'
     else:
         st.warning("Using fallback font (Arial) - some characters may not display correctly")
         default_font = 'Arial'
     
     pdf.set_font(default_font, size=12)
-    pdf.set_margins(15, 15, 15)  # Increased margins for better readability
+    pdf.set_margins(15, 15, 15)
     
     # Title
     pdf.set_font(default_font, 'B', 16)
@@ -128,15 +151,9 @@ def generate_pypdf2_report(extraction_data, filename):
         pdf.cell(0, 10, "Extracted Text:", 0, 1)
         pdf.set_font(default_font, size=8)
         
-        # Clean and normalize text
-        text = extraction_data['text']
-        text = text.replace('\r\n', '\n').replace('\r', '\n')
-        
-        # Handle Unicode characters
-        try:
-            text = text.encode('latin-1', 'replace').decode('latin-1')
-        except:
-            pass
+        # Clean text
+        text = extraction_data['text'].replace('\r\n', '\n').replace('\r', '\n')
+        text = text.replace('–', '-')  # Replace en-dashes with regular hyphens
         
         paragraphs = text.split('\n\n')
         
@@ -160,9 +177,9 @@ def main():
     st.title("PyPDF2 Text Extraction")
     st.subheader("Performance Monitoring and Analysis")
     
-    if not UNICODE_FONT_PATH:
+    if not FONT_VARIANTS or not all(FONT_VARIANTS.values()):
         st.warning("""
-        Unicode font not available. Some special characters may not display correctly in reports.
+        Some Unicode font variants not available. Special characters may not display correctly in reports.
         For full Unicode support, please ensure internet access is available to download fonts.
         """)
     
